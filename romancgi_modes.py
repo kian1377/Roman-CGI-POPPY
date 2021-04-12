@@ -113,11 +113,8 @@ oap3 = poppy.QuadraticLens(fl_oap3, name='OAP3')
 fold3 = poppy.CircularAperture(radius=diam_fold3/2,name="Fold 3")
 oap4 = poppy.QuadraticLens(fl_oap4, name='OAP4')
 oap5 = poppy.QuadraticLens(fl_oap5, name='OAP5')
-fpm_plane = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM (None)') # an intermediate plane to obtain wavefront
 oap6 = poppy.QuadraticLens(fl_oap6, name='OAP6')
 oap7 = poppy.QuadraticLens(fl_oap7, name='OAP7')
-fieldstop_plane = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='Fieldstop (None)')
-fieldstop = poppy.CircularAperture(radius=0.5*u.m, name='Fieldstop')
 oap8 = poppy.QuadraticLens(fl_oap8, name='OAP8')
 filt = poppy.CircularAperture(radius=diam_filter/2, name='Filter')
 lens = poppy.QuadraticLens(fl_lens, name='LENS')
@@ -231,7 +228,7 @@ def run_model(npix=1024,
               oversample=2,
               mode='SPC730',
               lambda_m=None,
-              tilts=(0,0),
+              offsets=(0,0),
               use_fpm=True,
               use_errors=False,
               use_dms=False, 
@@ -242,79 +239,139 @@ def run_model(npix=1024,
     reload(poppy); reload(misc)
     clear_output()
     
-    print('\nInitializing all FITS based elements from...')
     if mode=='SPC730':
-        opticsdir = Path('/groups/douglase/webbpsf-data/CGI/optics/F730'); print('SPC730 Optics directory:',opticsdir)
+        opticsdir = Path('/groups/douglase/webbpsf-data/CGI/optics/F730')
+        pupil_fname = str(opticsdir/'pupil_SPC-20190130_rotated.fits')
+        spm_fname = str(opticsdir/'SPM_SPC-20190130.fits')
+        fpm_fname = str(opticsdir/'FPM_res100_SPC-20190130.fits')
+        lyotstop_fname = str(opticsdir/'LS_SPC-20190130.fits')
+        dm1_fname = str(opticsdir/'spc-spec_long_with_aberrations_dm1.fits')
+        dm2_fname = str(opticsdir/'spc-spec_long_with_aberrations_dm2.fits')
+        
+        lambda_c_m = 730e-9*u.m
         if lambda_m==None:
             lambda_m = 730e-9*u.m
-
-        pupil = poppy.FITSOpticalElement('Roman Pupil', str(opticsdir/'pupil_SPC-20190130_rotated.fits'), 
-                                         planetype=PlaneType.pupil)
-
-        SPM = poppy.FITSOpticalElement('Shaped Pupil Mask', str(opticsdir/'SPM_SPC-20190130.fits'),
-                                       planetype=PlaneType.pupil)
-
-        FPM = poppy.FITSFPMElement('BOWTIE FPM', 
-                                   str(opticsdir/'FPM_res100_SPC-20190130.fits'), 
-                                   wavelength_c=730e-9*u.m, 
-                                   ep_diam=D, 
-                                   pixelscale_lamD=0.01,
-                                   centering=centering,)
-
-        LS = poppy.FITSOpticalElement('Lyot Stop', str(opticsdir/'LS_SPC-20190130.fits'), 
-                                      planetype=PlaneType.pupil)
-
-        dm1 = poppy.FITSOpticalElement('DM1', 
-                                       opd=str(opticsdir/'spc-spec_long_with_aberrations_dm1.fits'), 
-                                       opdunits='meters', 
-                                       planetype=PlaneType.intermediate)
-        dm2 = poppy.FITSOpticalElement('DM2',
-                                       opd=str(opticsdir/'spc-spec_long_with_aberrations_dm2.fits'),
-                                       opdunits='meters', 
-                                       planetype=PlaneType.intermediate)
+        fpm_pxscl_lamD = 0.01
+        fpm_name = 'BOWTIE FPM'
     elif mode=='SPC825':
-        opticsdir = Path('/groups/douglase/webbpsf-data/CGI/optics/F825'); print('SPC825 Optics directory:',opticsdir)
+        opticsdir = Path('/groups/douglase/webbpsf-data/CGI/optics/F825')
+        pupil_fname = str(opticsdir/'pupil_SPC-20181220_1k_rotated.fits')
+        spm_fname = str(opticsdir/'SPM_SPC-20181220_1000_rounded9_gray.fits')
+        fpm_fname = str(opticsdir/'fpm_0.05lamdivD.fits')
+        lyotstop_fname = str(opticsdir/'LS_SPC-20181220_1k.fits')
+        dm1_fname = str(opticsdir/'spc-wide_with_aberrations_dm1.fits')
+        dm2_fname = str(opticsdir/'spc-wide_with_aberrations_dm2.fits')
+        
+        lambda_c_m = 825e-9*u.m
         if lambda_m==None:
             lambda_m = 825e-9*u.m
-        pupil = poppy.FITSOpticalElement('Roman Pupil', str(opticsdir/'pupil_SPC-20181220_1k_rotated.fits'), 
-                                     planetype=PlaneType.pupil)
+        fpm_pxscl_lamD = 0.05
+        fpm_name = 'ANNULAR FPM'
+    elif mode=='HLC575':
+        opticsdir = Path('/groups/douglase/webbpsf-data/CGI/optics/F575')
+        pupil_fname = str(opticsdir/'run461_pupil_rotated.fits')
+        
+        fpm_lams = [5.4625e-07, 5.49444444444e-07, 5.52638888889e-07, 5.534375e-07, 5.55833333333e-07, 
+                    5.59027777778e-07, 5.60625e-07, 5.62222222222e-07, 5.65416666667e-07, 5.678125e-07, 
+                    5.68611111111e-07, 5.71805555556e-07, 5.75e-07, 5.78194444444e-07, 5.81388888889e-07, 
+                    5.821875e-07, 5.84583333333e-07, 5.87777777778e-07, 5.89375e-07, 5.90972222222e-07,
+                    5.94166666667e-07, 5.965625e-07, 5.97361111111e-07, 6.00555555556e-07, 6.0375e-07 ]
+        fpm_lams_strs = ['5.4625e-07', '5.49444444444e-07', '5.52638888889e-07', '5.534375e-07', '5.55833333333e-07', 
+                         '5.59027777778e-07', '5.60625e-07', '5.62222222222e-07', '5.65416666667e-07', '5.678125e-07', 
+                         '5.68611111111e-07', '5.71805555556e-07', '5.75e-07', '5.78194444444e-07', '5.81388888889e-07', 
+                         '5.821875e-07', '5.84583333333e-07', '5.87777777778e-07', '5.89375e-07', '5.90972222222e-07', 
+                         '5.94166666667e-07', '5.965625e-07', '5.97361111111e-07', '6.00555555556e-07', '6.0375e-07' ]
+        
+        lambda_c_m = 575e-9*u.m
+        if lambda_m==None:
+            lambda_m = 575e-9*u.m
+        lamind = (np.abs(lambda_m.value - np.array(fpm_lams))).argmin()
+        fpm_trans_fname = str(opticsdir / ('run461_occ_lam' + fpm_lams_strs[lamind] + 'theta6.69polp_trans.fits'))
+        fpm_opd_fname = str(opticsdir / ('run461_occ_lam' + fpm_lams_strs[lamind] + 'theta6.69polp_opd.fits'))
+        
+        lyotstop_fname = str(opticsdir/'run461_lyot.fits')
+        
+        dm1_fname = str(opticsdir/'hlc_dm1.fits')
+        dm2_fname = str(opticsdir/'hlc_dm2.fits')
+        
+        lambda_c_m = 575e-9*u.m
+        if lambda_m==None:
+            lambda_m = 575e-9*u.m
+        fpm_pxscl_lamD = 0.05
+        fpm_name = 'Complex FPM'
+    
+    if mode=='SPC730' or mode=='SPC825':
+        pupil = poppy.FITSOpticalElement('Roman Pupil', pupil_fname, 
+                                         planetype=PlaneType.pupil)
 
-        SPM = poppy.FITSOpticalElement('Shaped Pupil Mask', str(opticsdir/'SPM_SPC-20181220_1000_rounded9_gray.fits'),
+        SPM = poppy.FITSOpticalElement('Shaped Pupil Mask', spm_fname,
                                        planetype=PlaneType.pupil)
+        
+        if use_fpm:
+            FPM = poppy.FITSFPMElement(fpm_name, 
+                                       fpm_fname, 
+                                       wavelength_c=lambda_c_m, 
+                                       ep_diam=D, 
+                                       pixelscale_lamD=fpm_pxscl_lamD,
+                                       centering=centering,)
+        else:
+            FPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM Plane (No Optic)')
 
-        FPM = poppy.FITSFPMElement('ANNULAR FPM', str(opticsdir/'fpm_0.05lamdivD.fits'), 
-                                   wavelength_c=825e-9*u.m, 
-                                   ep_diam=D, 
-                                   pixelscale_lamD=0.05,
-                                   centering=centering,)
-
-        LS = poppy.FITSOpticalElement('Lyot Stop', str(opticsdir/'LS_SPC-20181220_1k.fits'), 
+        LS = poppy.FITSOpticalElement('Lyot Stop', lyotstop_fname, 
+                                      planetype=PlaneType.pupil)
+    else:
+        pupil = poppy.FITSOpticalElement('Roman Pupil', pupil_fname, 
+                                         planetype=PlaneType.pupil)
+        
+        SPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='SPM Plane (No Optic)')
+        
+        if use_fpm:
+            FPM = poppy.FITSOpticalElement('Complex FPM', 
+                                           transmission=fpm_trans_fname,
+                                           opd=fpm_opd_fname, opdunits='meter',
+                                           planetype=PlaneType.intermediate)
+        else:
+            FPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM Plane (No Optic)')
+            
+        LS = poppy.FITSOpticalElement('Lyot Stop', lyotstop_fname, 
                                       planetype=PlaneType.pupil)
 
-        dm1 = poppy.FITSOpticalElement('DM1', 
-                                       opd=str(opticsdir/'spc-wide_with_aberrations_dm1.fits'), 
-                                       opdunits='meters', 
+    if use_dms: 
+        dm1 = poppy.FITSOpticalElement('DM1', opd=dm1_fname, opdunits='meters', 
                                        planetype=PlaneType.intermediate)
-        dm2 = poppy.FITSOpticalElement('DM2',
-                                       opd=str(opticsdir/'spc-wide_with_aberrations_dm2.fits'),
-                                       opdunits='meters', 
+        dm2 = poppy.FITSOpticalElement('DM2', opd=dm2_fname, opdunits='meters', 
                                        planetype=PlaneType.intermediate)
-    elif mode=='HLC575':
-        print('Not yet implemented in POPPY.')
-        return
-    
+    else: 
+        dm1 = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='DM1 Plane (No Optic)')
+        dm2 = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='DM2 Plane (No Optic)')
+       
+    if use_fieldstop:
+        fieldstop = poppy.CircularAperture(radius=0.5*u.m, name='Fieldstop')
+    else: 
+        fieldstop = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='Fieldstop Plane (No Optic)')
+        
     fig=plt.figure(figsize=(4,4)); pupil.display(); plt.close(); display(fig)
     fig=plt.figure(figsize=(4,4)); SPM.display(); plt.close(); display(fig)
     fig=plt.figure(figsize=(10,4)); FPM.display(what='both'); plt.close(); display(fig)
     fig=plt.figure(figsize=(4,4)); LS.display(); plt.close(); display(fig)
     fig=plt.figure(figsize=(10,4)); dm1.display(what='both'); plt.close(); display(fig)
     fig=plt.figure(figsize=(10,4)); dm2.display(what='both'); plt.close(); display(fig)
+    fig=plt.figure(figsize=(4,4)); fieldstop.display(); plt.close(); display(fig)
     fig=plt.figure(figsize=(10,4)); primary_opd.display(what='both'); plt.close(); display(fig)
     
     # proper.prop_multiply( wavefront, np.exp(complex(0,1) * np.pi * (xtilt_lam * x + ytilt_lam * y)) )
-    xtilt,ytilt = tilts
-    tilt = poppy.ZernikeWFE(radius=D/2, coefficients=[0, xtilt, ytilt], aperture_stop=False)
-    fig=plt.figure(figsize=(10,4)); tilt.display(what='both'); plt.close(); display(fig)
+    xoffset = offsets[0]
+    yoffset = offsets[1]
+    xoffset_lam = -xoffset * (lambda_c_m / lambda_m).value
+    yoffset_lam = -yoffset * (lambda_c_m / lambda_m).value
+    n = npix*oversample
+    x = np.tile( (np.arange(n)-n//2)/(npix/2.0), (n,1) )
+    y = np.transpose(x)
+    wfin = poppy.FresnelWavefront(beam_radius=D/2, wavelength=lambda_m, npix=npix, oversample=oversample)
+    wfin.wavefront = np.exp(complex(0,1) * np.pi * (xoffset_lam * x + yoffset_lam * y))
+    misc.myimshow2(np.abs(wfin.wavefront)**2, np.angle(wfin.wavefront),
+                   'Input Wave Intensity', 'Input Wave Phase',
+                   pxscl=wfin.pixelscale)
 
     # create the optical system
     beam_ratio = 1/oversample
@@ -322,7 +379,6 @@ def run_model(npix=1024,
                                      npix=npix, beam_ratio=beam_ratio, verbose=True)
 
     spc.add_optic(pupil)
-    spc.add_optic(tilt)
     
     spc.add_optic(primary)
     if use_errors: spc.add_optic(primary_opd)
@@ -364,16 +420,13 @@ def run_model(npix=1024,
     if use_apertures: spc.add_optic(poppy.CircularAperture(radius=diam_oap2/2,name="OAP2 aperture"))
     if use_errors: spc.add_optic(oap2_opd)
     
-    if use_dms:
-        spc.add_optic(dm1, distance=d_oap2_dm1)
-        if use_errors: spc.add_optic(dm1_opd)
+    spc.add_optic(dm1, distance=d_oap2_dm1)
+    if use_errors: spc.add_optic(dm1_opd)
 
-        spc.add_optic(dm2, distance=d_dm1_dm2)
-        if use_errors: spc.add_optic(dm2_opd)
+    spc.add_optic(dm2, distance=d_dm1_dm2)
+    if use_errors: spc.add_optic(dm2_opd)
 
-        spc.add_optic(oap3, distance=d_dm2_oap3)
-    else:
-        spc.add_optic(oap3, distance=d_oap2_dm1 + d_dm1_dm2 + d_dm2_oap3)
+    spc.add_optic(oap3, distance=d_dm2_oap3)
     if use_apertures: spc.add_optic(poppy.CircularAperture(radius=diam_oap3/2,name="OAP3 aperture"))
     if use_errors: spc.add_optic(oap3_opd)
 
@@ -389,8 +442,7 @@ def run_model(npix=1024,
     spc.add_optic(oap5, distance=d_pupilmask_oap5)
     if use_errors: spc.add_optic(oap5_opd)
 
-    if use_fpm: spc.add_optic(FPM, distance=d_oap5_fpm)
-    else: spc.add_optic(fpm_plane, distance=d_oap5_fpm)
+    spc.add_optic(FPM, distance=d_oap5_fpm)
 
     spc.add_optic(oap6, distance=d_fpm_oap6)
     if use_apertures: spc.add_optic(poppy.CircularAperture(radius=diam_oap6/2,name="OAP6 aperture"))
@@ -402,8 +454,7 @@ def run_model(npix=1024,
     if use_apertures: spc.add_optic(poppy.CircularAperture(radius=diam_oap7/2,name="OAP7 aperture"))
     if use_errors: spc.add_optic(oap7_opd)
 
-    if use_fieldstop: spc.add_optic(fieldstop, distance=d_oap7_fieldstop)
-    else: spc.add_optic(fieldstop_plane, distance=d_oap7_fieldstop)
+    spc.add_optic(fieldstop, distance=d_oap7_fieldstop)
 
     spc.add_optic(oap8, distance=d_fieldstop_oap8)
     if use_apertures: spc.add_optic(poppy.CircularAperture(radius=diam_oap8/2,name="OAP8 aperture"))
@@ -422,24 +473,20 @@ def run_model(npix=1024,
 
     spc.describe()
 
-    # calculate the PSF of the second optical system
+    # calculate the PSF of the second optical system ##################################################################
     fig=plt.figure(figsize=(15,15))
     psf,wfs = spc.calc_psf(wavelength=lambda_m, 
-                            display_intermediates=display_intermediates, 
-                            return_intermediates=True,)
+                           display_intermediates=display_intermediates, 
+                           return_intermediates=True,
+                           inwave=wfin,
+                          )
     plt.subplots_adjust(hspace=0.25, wspace=0.25)
     plt.close(); display(fig)
     
-    ''' 
-    End of all propagation, just plotting and analyses.
-    '''
+    ''' End of all propagation, just plotting and analyses. '''
     
     # view the wavefront at fpm plane and at final image plane
-    fpmnum = 18
-    if use_apertures: 
-        fpmnum = 26
-        if use_errors:
-            fpm_num = 46
+    fpmnum = 27
     fpm_wf = wfs[fpmnum].wavefront
     fpm_samp = wfs[fpmnum].pixelscale
     print(fpm_wf.shape, fpm_samp)
@@ -469,7 +516,10 @@ def run_model(npix=1024,
     if use_errors: wf_fpath += 'ab_'
     wf_fpath += 'psf_'
     if use_fpm==False: wf_fpath += 'nofpm_'
-    if xtilt!=0: wf_fpath += 'offax_'
+    if xoffset!=0: wf_fpath += 'offax_'
+    if lambda_m==700e-9*u.m: wf_fpath += '700nm_'
+    elif lambda_m==800e-9*u.m: wf_fpath += '800nm_'
+    elif lambda_m==600e-9*u.m: wf_fpath += '600nm_'
     wf_fpath += 'proper.fits'
     print(wf_fpath)
     
