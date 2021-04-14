@@ -235,7 +235,8 @@ def run_model(npix=1024,
               use_fieldstop=False,
               use_apertures=False,
               centering='ADJUSTABLE',
-              display_intermediates=False):
+              display_intermediates=False,
+              save_waves=False):
     reload(poppy); reload(misc)
     clear_output()
     
@@ -269,7 +270,8 @@ def run_model(npix=1024,
         fpm_name = 'ANNULAR FPM'
     elif mode=='HLC575':
         opticsdir = Path('/groups/douglase/webbpsf-data/CGI/optics/F575')
-        pupil_fname = str(opticsdir/'run461_pupil_rotated.fits')
+#         pupil_fname = str(opticsdir/'run461_pupil_rotated.fits')
+        pupil_fname = str(opticsdir/'pupil_SPC-20190130_rotated.fits')
         
         fpm_lams = [5.4625e-07, 5.49444444444e-07, 5.52638888889e-07, 5.534375e-07, 5.55833333333e-07, 
                     5.59027777778e-07, 5.60625e-07, 5.62222222222e-07, 5.65416666667e-07, 5.678125e-07, 
@@ -359,7 +361,6 @@ def run_model(npix=1024,
     fig=plt.figure(figsize=(4,4)); fieldstop.display(); plt.close(); display(fig)
     fig=plt.figure(figsize=(10,4)); primary_opd.display(what='both'); plt.close(); display(fig)
     
-    # proper.prop_multiply( wavefront, np.exp(complex(0,1) * np.pi * (xtilt_lam * x + ytilt_lam * y)) )
     xoffset = offsets[0]
     yoffset = offsets[1]
     xoffset_lam = -xoffset * (lambda_c_m / lambda_m).value
@@ -369,6 +370,7 @@ def run_model(npix=1024,
     y = np.transpose(x)
     wfin = poppy.FresnelWavefront(beam_radius=D/2, wavelength=lambda_m, npix=npix, oversample=oversample)
     wfin.wavefront = np.exp(complex(0,1) * np.pi * (xoffset_lam * x + yoffset_lam * y))
+    
     misc.myimshow2(np.abs(wfin.wavefront)**2, np.angle(wfin.wavefront),
                    'Input Wave Intensity', 'Input Wave Phase',
                    pxscl=wfin.pixelscale)
@@ -486,11 +488,12 @@ def run_model(npix=1024,
     ''' End of all propagation, just plotting and analyses. '''
     
     # view the wavefront at fpm plane and at final image plane
-    fpmnum = 27
+    fpmnum = 19
+    if use_apertures:
+        fpmnum = 27
     fpm_wf = wfs[fpmnum].wavefront
     fpm_samp = wfs[fpmnum].pixelscale
-    print(fpm_wf.shape, fpm_samp)
-
+    print('FPM shape and pixelscale: ', fpm_wf.shape, fpm_samp)
     misc.myimshow2(np.abs(fpm_wf)**2, np.angle(fpm_wf),
                    'FPM Intensity', 'FPM Phase',
                    n=128,
@@ -501,8 +504,7 @@ def run_model(npix=1024,
     npop = wfs[wfnum].wavefront.shape[0]
     pop_wf = wfs[wfnum].wavefront
     pop_samp = wfs[wfnum].pixelscale
-    print(pop_wf.shape, pop_samp)
-    
+    print('PSF shape and pixelscale: ', pop_wf.shape, pop_samp)
     misc.myimshow2(np.abs(pop_wf)**2, np.angle(pop_wf),
                    'PSF Intensity', 'PSF Phase',
                    n=128,
@@ -521,7 +523,7 @@ def run_model(npix=1024,
     elif lambda_m==800e-9*u.m: wf_fpath += '800nm_'
     elif lambda_m==600e-9*u.m: wf_fpath += '600nm_'
     wf_fpath += 'proper.fits'
-    print(wf_fpath)
+    print('Loading PROPER wavefront data from ', wf_fpath)
     
     proper_wf = fits.getdata(wf_fpath)
     proper_hdr = fits.getheader(wf_fpath)
@@ -534,7 +536,7 @@ def run_model(npix=1024,
     pop_samp = pop_samp/mag
     output_dim = nprop
     pop_wf = proper.prop_magnify( pop_wf, mag, output_dim, AMP_CONSERVE=True ).T
-    print(proper_wf[0].shape, prop_samp)
+    print('PROPER PSF shape and pixelscale: ', proper_wf[0].shape, prop_samp)
     
     # get normalization values
     vmax=np.max(np.abs(pop_wf)**2)
@@ -576,8 +578,8 @@ def run_model(npix=1024,
                    patches1=patches1, patches2=patches2,
                    wspace=0.45)
     
-    print(np.min(np.abs(pop_wf)**2), np.max(np.abs(pop_wf)**2))
-    print(np.min(proper_wf[0]), np.max(proper_wf[0]))
+    print('Maximum value from POPPY: ', np.max(np.abs(pop_wf)**2))
+    print('Maximum value from PROPER: ', np.max(proper_wf[0]))
     
     print('Total flux from POPPY: ', np.sum(np.abs(pop_wf)**2))
     print('Total flux from PROPER: ', np.sum(proper_wf[0]))
@@ -593,7 +595,34 @@ def run_model(npix=1024,
                    lognorm1=True,
                    patches1=patches1, patches2=patches2,
                    wspace=0.45)
-    
+
+    if save_waves and use_apertures==False and use_errors==False:
+        optics = ['pupil', 'primary', 'secondary', 'fold1', 'm3', 'm4', 'm5', 'fold2', 'fsm', 'oap1', 
+                  'focm', 'oap2', 'dm1', 'dm2', 'oap3', 'fold3', 'oap4', 'spm', 'oap5', 'fpm', 'oap6',
+                  'lyotstop', 'oap7', 'fieldstop', 'oap8', 'filter', 'lens', 'fold4', 'image']
+        if mode=='SPC730':
+            wfdir = 'spc730-fresnel-wavefronts/'
+        elif mode=='SPC825':
+            wfdir = 'spc825-fresnel-wavefronts/'
+        elif mode=='HLC575':
+            wfdir = 'hlc575-fresnel-wavefronts/'
+           
+        print('Saving wavefronts: ')
+        for i,wf in enumerate(wfs):
+            n = wf.wavefront.shape[0]
+
+            wf_data = np.zeros(shape=(2,n,n))
+            wf_data[0,:,:] = np.abs(wf.wavefront)**2
+            wf_data[1,:,:] = np.angle(wf.wavefront)
+            
+            wf_fpath = wfdir + 'wf_' + optics[i] + '_poppy' + '.fits'
+            hdr = fits.Header()
+            hdr['PIXELSCL'] = wf.pixelscale.value
+
+            wf_hdu = fits.PrimaryHDU(wf_data, header=hdr)
+            wf_hdu.writeto(wf_fpath, overwrite=True)
+            print(i, 'Saved '+optics[i]+' wavefront to ' + wf_fpath)
+        
     return psf, wfs
     
     
