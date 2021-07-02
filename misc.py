@@ -19,16 +19,21 @@ def myimshow(arr, title=None,
         arr = trim(arr, n)
     
     if pxscl != None:
-        vext = pxscl.value * arr.shape[0]/2
-        hext = pxscl.value * arr.shape[1]/2
-        extent = [-vext,vext,-hext,hext]
-        
-        if pxscl.unit.is_equivalent(u.meter/u.pix):
+        if isinstance(pxscl, float):
+            vext = pxscl * arr.shape[0]/2
+            hext = pxscl * arr.shape[1]/2
+            extent = [-vext,vext,-hext,hext]
+            ax.set_xlabel('lam/D')
+        elif pxscl.unit.is_equivalent(u.meter/u.pix):
+            vext = pxscl.value * arr.shape[0]/2
+            hext = pxscl.value * arr.shape[1]/2
+            extent = [-vext,vext,-hext,hext]
             ax.set_xlabel('meters')
         elif pxscl.unit.is_equivalent(u.arcsec/u.pix):
+            vext = pxscl.value * arr.shape[0]/2
+            hext = pxscl.value * arr.shape[1]/2
+            extent = [-vext,vext,-hext,hext]
             ax.set_xlabel('arcsec')
-        else: 
-            ax.set_xlabel('lam/D')
     else:
         extent=None
     
@@ -53,8 +58,9 @@ def myimshow(arr, title=None,
     
 def myimshow2(arr1, arr2, 
               title1=None, title2=None,
-              n=None,
+              n=None, n1=None, n2=None,
               pxscl=None, pxscl1=None, pxscl2=None,
+              cmap1='magma', cmap2='magma',
               lognorm1=False, lognorm2=False,
               vmin1=None, vmax1=None, vmin2=None, vmax2=None, 
               patches1=None, patches2=None,
@@ -66,6 +72,10 @@ def myimshow2(arr1, arr2,
     if n is not None:
         arr1 = trim(arr1, n)
         arr2 = trim(arr2, n)
+    if n1 is not None:
+        arr1 = trim(arr1, n1)
+    if n2 is not None:
+        arr2 = trim(arr2, n2)
     
     if pxscl is not None and pxscl!=np.nan and pxscl!=np.inf:
         vext = pxscl.value * arr1.shape[0]/2
@@ -117,7 +127,7 @@ def myimshow2(arr1, arr2,
         norm2 = Normalize(vmin=vmin2,vmax=vmax2)
         
     # first plot
-    im = ax[0].imshow(arr1, cmap='magma', norm=norm1, extent=extent1)
+    im = ax[0].imshow(arr1, cmap=cmap1, norm=norm1, extent=extent1)
     if patches1: 
         for patch1 in patches1:
             ax[0].add_patch(patch1)
@@ -127,7 +137,7 @@ def myimshow2(arr1, arr2,
     fig.colorbar(im, cax=cax)
     
     # second plot
-    im = ax[1].imshow(arr2, cmap='magma', norm=norm2, extent=extent2)
+    im = ax[1].imshow(arr2, cmap=cmap2, norm=norm2, extent=extent2)
     if patches2: 
         for patch2 in patches2:
             ax[1].add_patch(patch2)
