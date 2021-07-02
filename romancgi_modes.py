@@ -344,30 +344,6 @@ def run_model(npix=1024,
     fig=plt.figure(figsize=(4,4)); fieldstop.display(); plt.close(); display(fig)
     fig=plt.figure(figsize=(10,4)); primary_opd.display(what='both'); plt.close(); display(fig)
     
-#     wfin = poppy.FresnelWavefront(beam_radius=D/2, wavelength=lambda_m, npix=npix, oversample=oversample)
-    
-#     if polaxis!=0: 
-#         print('\nEmploying polarization aberrations.\n')
-#         polfile = '/groups/douglase/webbpsf-data/CGI/optics/pol/new_toma'
-#         if mode=='HLC575':
-#             polmap.polmap( wfin, polfile, 309, polaxis )
-#         else:
-#             polmap.polmap( wfin, polfile, npix, polaxis )
-#     else:
-#         print('\nNOT employing polarization aberrations.\n')
-    
-#     xoffset = offsets[0]
-#     yoffset = offsets[1]
-#     xoffset_lam = xoffset * (lambda_c_m / lambda_m).value * (D/2.3633372*u.m).value
-#     yoffset_lam = yoffset * (lambda_c_m / lambda_m).value * (D/2.3633372*u.m).value
-#     n = npix*oversample
-#     x = np.tile( (np.arange(n)-n//2)/(npix/2.0), (n,1) )
-#     y = np.transpose(x)
-#     wfin.wavefront = wfin.wavefront * np.exp(complex(0,1) * np.pi * (xoffset_lam * x + yoffset_lam * y))
-    
-#     misc.myimshow2(np.abs(wfin.wavefront)**2, np.angle(wfin.wavefront),
-#                    'Input Wave Intensity', 'Input Wave Phase',
-#                    pxscl=wfin.pixelscale, cmap2='')
     wfin = make_inwave(mode, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxis)
 
     # create the optical system
@@ -542,26 +518,36 @@ def make_inwave(mode, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxi
     
     return wfin
 
-def compare_psfs(pop_psf, mode, rotate=False):
+def compare_psfs(pop_psf, mode, 
+                 onax, use_dms, use_errors, offlam,
+                 rotate=False):
     if mode=='HLC575':
-        prop_psf_fname = '/groups/douglase/hlc575-fresnel-wavefronts/wf_psf_proper.fits'
+        prop_psf_fpath = 'proper-psfs/hlc/'
         iwa = 3; owa = 9
     elif mode=='SPC730':
-        prop_psf_fname = '/groups/douglase/spc730-fresnel-wavefronts/wf_psf_proper.fits'
+        prop_psf_fpath = 'proper-psfs/spc-spec/'
         iwa = 3; owa = 9
     elif mode=='SPC825':
-        prop_psf_fname = '/groups/douglase/spc825-fresnel-wavefronts/wf_psf_proper.fits'
+        prop_psf_fpath = 'proper-psfs/spc-wide/'
         iwa = 5.4; owa = 20
-    pop_psf_wf = pop_psf.wavefront
-    pop_pxscl = pop_psf.pixelscale.value
-    
+    prop_psf_fname = prop_psf_fpath + 'proper_psf'
+    if onax: prop_psf_fname += '_onax'
+    else: prop_psf_fname += '_offax'
+    if use_errors: prop_psf_fname += '_opds'
+    if use_dms: prop_psf_fname += '_dms'
+    if offlam: prop_psf_fname += '_offlam'
+    prop_psf_fname += '.fits'
+        
     prop_wf = fits.getdata(prop_psf_fname)
     prop_int = prop_wf[0]
     prop_phs = prop_wf[1]
     prop_pxscl = fits.getheader(prop_psf_fname)['PIXELSCL']
     prop_pxscl_lamD = fits.getheader(prop_psf_fname)['PIXSCLLD']
-    print(pop_pxscl, prop_pxscl, prop_pxscl_lamD, prop_wf.shape)
     
+    pop_psf_wf = pop_psf.wavefront
+    pop_pxscl = pop_psf.pixelscale.value
+    print(pop_pxscl, prop_pxscl, prop_pxscl_lamD, prop_wf.shape)
+        
     mag = pop_pxscl/prop_pxscl
     pop_psf_wf = proper.prop_magnify(pop_psf_wf, mag, prop_wf[0].shape[0], AMP_CONSERVE=True)
     if rotate: 
@@ -594,7 +580,7 @@ def compare_psfs(pop_psf, mode, rotate=False):
                 Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
     misc.myimshow2(pop_phs, prop_phs, 'POPPY PSF Phase', 'PROPER PSF Phase',
                    pxscl=prop_pxscl*u.m/u.pix,
-                   cmap1='viridis', cmap2='bwr',
+                   cmap1='viridis', cmap2='viridis',
                    patches1=patches1, patches2=patches2)
     
     patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
