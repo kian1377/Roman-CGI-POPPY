@@ -1,13 +1,13 @@
 #   Copyright 2019 California Institute of Technology
 # ------------------------------------------------------------------
-
 import numpy as np
 from scipy.interpolate import interp1d
 import math
 import astropy.io.fits as fits
+from misc import pad_or_crop
 
 # import proper
-from wfirst_phaseb_proper import trim
+# from wfirst_phaseb_proper import trim
 
 # wavefront: current wavefront structure
 # polfile: rootname of file containing polarization coefficients
@@ -55,7 +55,7 @@ def polmap( wavefront, polfile, pupil_diam_pix, condition, MUF=1.0 ):
 #     proper.prop_add_phase( wavefront, trim(MUF*pha,n) )
 #     wavefront.wavefront *= trim(amp,n)
 #     wavefront.wavefront += trim(MUF*pha,n)
-    wavefront.wavefront *= trim(amp*np.exp(1j*(2*np.pi/lambda_m)*pha), n)
+    wavefront.wavefront *= pad_or_crop(amp*np.exp(1j*(2*np.pi/lambda_m)*pha), n)
     
     amp = 0
     phase = 0
@@ -98,8 +98,8 @@ def polab( polfile, lambda_m, pupil_diam_pix, condition ):
 
 #     zamp_array = proper.prop_fits_read( polfile+'_amp.fits' )
 #     zpha_array = proper.prop_fits_read( polfile+'_pha.fits' )
-    zamp_array = fits.getdata( polfile+'_amp.fits' )
-    zpha_array = fits.getdata( polfile+'_pha.fits' )
+    zamp_array = fits.getdata( str(polfile)+'_amp.fits' )
+    zpha_array = fits.getdata( str(polfile)+'_pha.fits' )
     nlam = zamp_array.shape[2]
     if nlam == 6:
         lam_array_m = (np.arange(6) * 100 + 450) * 1.0e-9 

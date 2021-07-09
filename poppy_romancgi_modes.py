@@ -1,19 +1,18 @@
-import astropy.io.fits as fits
-import astropy.units as u
-import scipy
 import poppy
 from poppy.poppy_core import PlaneType
 import proper
-import glob
-
+import astropy.io.fits as fits
+import astropy.units as u
 import numpy as np
+import scipy
+
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
 from matplotlib.patches import Circle
 from IPython.display import display, clear_output
 
 import os
 import time
+import glob
 from pathlib import Path
 
 from importlib import reload
@@ -511,7 +510,7 @@ def make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offset
     
     return wfin
 
-def compare_psfs(pop_psf, prop_psf_fpath, rotate=False):
+def compare_psfs(pop_psf, prop_psf_fpath):
     reload(misc)
     prop_psf_fname = str(prop_psf_fpath)
     if 'hlc' in prop_psf_fname:
@@ -546,10 +545,10 @@ def compare_psfs(pop_psf, prop_psf_fpath, rotate=False):
     pop_psf_wf = proper.prop_magnify(pop_psf_wf, mag, prop_wf[0].shape[0], AMP_CONSERVE=True)
     print('Interpolated POPPY wavefront pixelscale: ', pop_pxscl/mag*u.m/u.pix)
     
-    if rotate: 
-        pop_psf_wf_r = scipy.ndimage.rotate(np.real(pop_psf_wf), 180)
-        pop_psf_wf_i = scipy.ndimage.rotate(np.imag(pop_psf_wf), 180)
-        pop_psf_wf = pop_psf_wf_r + 1j*pop_psf_wf_i
+    # rotate poppy psf 180degree since there is a sign convention difference between POPPY and PROPER
+    pop_psf_wf_r = scipy.ndimage.rotate(np.real(pop_psf_wf), 180)
+    pop_psf_wf_i = scipy.ndimage.rotate(np.imag(pop_psf_wf), 180)
+    pop_psf_wf = pop_psf_wf_r + 1j*pop_psf_wf_i
     pop_int = np.abs(pop_psf_wf)**2
     pop_phs = np.angle(pop_psf_wf)
     
@@ -575,7 +574,7 @@ def compare_psfs(pop_psf, prop_psf_fpath, rotate=False):
     patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
                 Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
     misc.myimshow2(pop_phs, prop_phs, 'POPPY PSF Phase', 'PROPER PSF Phase',
-                   pxscl=(prop_pxscl*u.m/u.pix),
+                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
                    cmap1='viridis', cmap2='viridis',
                    patches1=patches1, patches2=patches2,)
     
@@ -593,24 +592,16 @@ def compare_psfs(pop_psf, prop_psf_fpath, rotate=False):
                    patches1=patches1, patches2=patches2)
     
 # convenient function for saving all wavefront data at each optic of the system once a PSF is calculated
-def save_waves(mode, wfs, use_apertures, use_opds, npix=1000, wfdir=None):
-    clear_output()
-    if mode=='HLC575':
-        wfdir = wfdir/'hlc-fresnel-wavefronts'
-    elif mode=='SPC730':
-        wfdir = wfdir/'spc-spec-fresnel-wavefronts'
-    elif mode=='SPC825':
-        wfdir = wfdir/'spc-wide-fresnel-wavefronts'
-
+def save_waves(wfs, use_apertures, use_opds, npix=1000, wfdir=None):
     if use_apertures==False and use_opds==False:
         optics = ['pupil', 'primary', 'secondary', 'fold1', 'm3', 'm4', 'm5', 'fold2', 'fsm', 'oap1', 
                   'focm', 'oap2', 'dm1', 'dm2', 'oap3', 'fold3', 'oap4', 'spm', 'oap5', 'fpm', 'oap6',
                   'lyotstop', 'oap7', 'fieldstop', 'oap8', 'filter', 'lens', 'fold4', 'image']
         print('Saving wavefronts: ')
         for i,wf in enumerate(wfs):
-            wavefront = misc.trim(wf.wavefront, npix)
+            wavefront = misc.pad_or_crop(wf.wavefront, npix)
 
-            wf_data = np.zeros(shape=(2,n,n))
+            wf_data = np.zeros(shape=(2,npix,npix))
             wf_data[0,:,:] = np.abs(wavefront)**2
             wf_data[1,:,:] = np.angle(wavefront)
 
@@ -655,7 +646,7 @@ def save_waves(mode, wfs, use_apertures, use_opds, npix=1000, wfdir=None):
         for i,wf in enumerate(wfs):
             wavefront = misc.pad_or_crop(wf.wavefront, npix)
 
-            wf_data = np.zeros(shape=(2,n,n))
+            wf_data = np.zeros(shape=(2,npix,npix))
             wf_data[0,:,:] = np.abs(wavefront)**2
             wf_data[1,:,:] = np.angle(wavefront)
 
