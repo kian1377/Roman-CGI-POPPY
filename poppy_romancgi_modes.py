@@ -92,11 +92,6 @@ d_lens_fold4 = 0.246017378417573*u.m
 diam_fold4 = 0.02*u.m
 d_fold4_image = 0.050001578514650*u.m
 fl_pupillens = 0.149260576823040*u.m   
-
-import logging, sys
-_log = logging.getLogger('poppy')
-_log.setLevel("DEBUG")
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
         
 def run_model(npix=1000,
               oversample=2,
@@ -342,9 +337,6 @@ def run_model(npix=1000,
         fig=plt.figure(figsize=(10,4)); dm1.display(what='both'); plt.close(); display(fig)
         fig=plt.figure(figsize=(10,4)); dm2.display(what='both'); plt.close(); display(fig)
         fig=plt.figure(figsize=(4,4)); fieldstop.display(); plt.close(); display(fig)
-    
-    ''' Initialize the input wavefront and the FresnelOpticalSystem '''
-    wfin = make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxis, display_inwave)
 
     # create the optical system
     beam_ratio = 1/oversample
@@ -446,14 +438,14 @@ def run_model(npix=1000,
     fosys.add_optic(image, distance=d_fold4_image)
 
     ''' Calculate the PSF of the FresnelOpticalSystem '''
-    fig=plt.figure(figsize=(15,15))
+    start = time.time()
+    wfin = make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxis, display_inwave) # define the inwave
     psf,wfs = fosys.calc_psf(wavelength=lambda_m, 
                              display_intermediates=display_intermediates, 
                              return_final=True,
                              return_intermediates=True,
                              inwave=wfin)
-    plt.subplots_adjust(hspace=0.25, wspace=0.25)
-    plt.close(); display(fig)
+    print('PSF calculated in {:.2f}s'.format(time.time()-start))
     
     ''' Display options'''
     if display_fpm:
@@ -486,12 +478,12 @@ def make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offset
     wfin = poppy.FresnelWavefront(beam_radius=D/2, wavelength=lambda_m, npix=npix, oversample=oversample)
     
     if polaxis!=0: 
-        print('\nEmploying polarization aberrations.\n')
-        polfile = cgi_dir/'optics'/'pol'/'new_toma'
+        print('Employing polarization aberrations.')
+        polfile = cgi_dir/'optics'/'pol'/'new_toma' # the file extension is added by the polmap function call
         if mode=='HLC575': polmap.polmap( wfin, polfile, 309, polaxis )
         else: polmap.polmap( wfin, polfile, npix, polaxis )
     else:
-        print('\nNOT employing polarization aberrations.\n')
+        print('Not employing polarization aberrations.')
     
     xoffset = offsets[0]
     yoffset = offsets[1]
