@@ -20,17 +20,17 @@ def myimshow(arr, title=None,
         arr = pad_or_crop(arr, npix)
     
     if pxscl != None:
-        if pxscl.unit.is_equivalent(u.meter/u.pix):
+        if pxscl.unit==(u.meter/u.pix):
             vext = pxscl.value * arr.shape[0]/2
             hext = pxscl.value * arr.shape[1]/2
             extent = [-vext,vext,-hext,hext]
             ax.set_xlabel('meters')
-        elif pxscl.unit.is_equivalent(u.mm/u.pix):
+        elif pxscl.unit==(u.mm/u.pix):
             vext = pxscl.value * arr.shape[0]/2
             hext = pxscl.value * arr.shape[1]/2
             extent = [-vext,vext,-hext,hext]
             ax.set_xlabel('millimeters')
-        elif pxscl.unit.is_equivalent(u.arcsec/u.pix):
+        elif pxscl.unit==(u.arcsec/u.pix):
             vext = pxscl.value * arr.shape[0]/2
             hext = pxscl.value * arr.shape[1]/2
             extent = [-vext,vext,-hext,hext]
