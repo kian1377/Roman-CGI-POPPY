@@ -192,7 +192,7 @@ def run_model(npix=1000,
         else:
             FPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM Plane (No Optic)')
         LS = poppy.FITSOpticalElement('Lyot Stop', lyotstop_fname, planetype=PlaneType.pupil)
-    
+        
     if use_dms: 
         if mode=='HLC575':
             if use_opds:
