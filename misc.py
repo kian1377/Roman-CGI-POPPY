@@ -5,6 +5,7 @@ plt.rcParams['image.origin']='lower'
 from matplotlib.colors import LogNorm, Normalize
 from IPython.display import display, clear_output
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import astropy.io.fits as fits
 import astropy.units as u
 
 def myimshow(arr, title=None, 
@@ -167,7 +168,74 @@ def pad_or_crop( arr_in, npix ):
 
     return arr_out
         
-        
+# convenient function for saving all wavefront data at each optic of the system once a PSF is calculated
+def save_waves(wfs, use_apertures, use_opds, npix=1000, wfdir=None):
+    if use_apertures==False and use_opds==False:
+        optics = ['pupil', 'primary', 'secondary', 'fold1', 'm3', 'm4', 'm5', 'fold2', 'fsm', 'oap1', 
+                  'focm', 'oap2', 'dm1', 'dm2', 'oap3', 'fold3', 'oap4', 'spm', 'oap5', 'fpm', 'oap6',
+                  'lyotstop', 'oap7', 'fieldstop', 'oap8', 'filter', 'lens', 'fold4', 'image']
+        print('Saving wavefronts: ')
+        for i,wf in enumerate(wfs):
+            wavefront = pad_or_crop(wf.wavefront, npix)
+
+            wf_data = np.zeros(shape=(2,npix,npix))
+            wf_data[0,:,:] = np.abs(wavefront)**2
+            wf_data[1,:,:] = np.angle(wavefront)
+
+            wf_fpath = wfdir/('wf_' + optics[i] + '_poppy' + '.fits')
+            hdr = fits.Header()
+            hdr['PIXELSCL'] = wf.pixelscale.value
+
+            wf_hdu = fits.PrimaryHDU(wf_data, header=hdr)
+            wf_hdu.writeto(wf_fpath, overwrite=True)
+            print(i, 'Saved '+optics[i]+' wavefront to ' + str(wf_fpath))
+    elif use_apertures==False and use_opds==True:
+        optics = ['pupil', 
+                  'primary', 'primary_opd', 'g2o_opd', 
+                  'secondary', 'secondary_opd',
+                  'fold1', 'fold1_opd',
+                  'm3', 'm3_opd',
+                  'm4', 'm4_opd',
+                  'm5', 'm5_opd',
+                  'fold2', 'fold2_opd',
+                  'fsm', 'fsm_opd',
+                  'oap1', 'oap1_opd',
+                  'focm', 'focm_opd',
+                  'oap2', 'oap2_opd',
+                  'dm1', 'dm1_opd',
+                  'dm2', 'dm2_opd',
+                  'oap3', 'oap3_opd',
+                  'fold3', 'fold3_opd',
+                  'oap4', 'oap4_opd',
+                  'spm', 'spm_opd',
+                  'oap5', 'oap5_opd',
+                  'fpm', 
+                  'oap6', 'oap6_opd',
+                  'lyotstop', 
+                  'oap7', 'oap7_opd',
+                  'fieldstop', 
+                  'oap8', 'oap8_opd',
+                  'filter', 'filter_opd',
+                  'lens', 'lens_opd',
+                  'fold4', 'fold4_opd', 
+                  'image']
+        print('Saving wavefronts: ')
+        for i,wf in enumerate(wfs):
+            wavefront = pad_or_crop(wf.wavefront, npix)
+
+            wf_data = np.zeros(shape=(2,npix,npix))
+            wf_data[0,:,:] = np.abs(wavefront)**2
+            wf_data[1,:,:] = np.angle(wavefront)
+
+            wf_fpath = Path(wfdir)/('wf_' + optics[i] + '_poppy' + '.fits')
+            hdr = fits.Header()
+            hdr['PIXELSCL'] = wf.pixelscale.value
+
+            wf_hdu = fits.PrimaryHDU(wf_data, header=hdr)
+            wf_hdu.writeto(wf_fpath, overwrite=True)
+            print(i, 'Saved '+optics[i]+' wavefront to ' + str(wf_fpath))
+            
+    print('All wavefronts saved.')
         
         
         

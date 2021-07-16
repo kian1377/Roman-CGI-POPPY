@@ -19,6 +19,7 @@ from importlib import reload
 import misc
 import polmap
 
+# this section defines various optic focal lengths, diameters, and distances between optics.
 D = 2.3633372*u.m
 fl_pri = 2.83459423440 * 1.0013*u.m
 d_pri_sec = 2.285150515460035*u.m
@@ -92,10 +93,150 @@ d_lens_fold4 = 0.246017378417573*u.m
 diam_fold4 = 0.02*u.m
 d_fold4_image = 0.050001578514650*u.m
 fl_pupillens = 0.149260576823040*u.m   
-        
-def run_model(npix=1000,
+
+def make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxis, display=True):
+    ''' 
+    Initialize the monochromatic input wavefront
+        mode: 'HLC575', 'SPC730', or 'SPC825'
+        cgi_dir: the directory to the POPPY CGI data files
+        D: pupil diameter of the intended FresnelOpticalSystem and therefore the input wavefront
+        lambda_c_m: central wavelength of the mode in units of m
+        lambda_m: intended wavelength of the wavefront
+        npix: number of pixels across the pupil diameter
+        oversample: oversample factor of the wavefront
+        offsets: source offsets given a tuple as such (x_offset, y_offset)
+        polaxis: polarization axis to determine polarization aberrations with the polmap function
+        display: display the input wavefront or not
+    ''' 
+    wfin = poppy.FresnelWavefront(beam_radius=D/2, wavelength=lambda_m, npix=npix, oversample=oversample)
+    
+    if polaxis!=0: 
+        print('Employing polarization aberrations.')
+        polfile = cgi_dir/'optics'/'pol'/'new_toma' # the file extension is added by the polmap function call
+        if mode=='HLC575': polmap.polmap( wfin, polfile, 309, polaxis )
+        else: polmap.polmap( wfin, polfile, npix, polaxis )
+    else:
+        print('Not employing polarization aberrations.')
+    
+    xoffset = offsets[0]
+    yoffset = offsets[1]
+    xoffset_lam = -xoffset * (lambda_c_m / lambda_m).value * (D/2.3633372*u.m).value # maybe use negative sign
+    yoffset_lam = -yoffset * (lambda_c_m / lambda_m).value * (D/2.3633372*u.m).value
+    n = npix*oversample
+    x = np.tile( (np.arange(n)-n//2)/(npix/2.0), (n,1) )
+    y = np.transpose(x)
+    wfin.wavefront = wfin.wavefront * np.exp(complex(0,1) * np.pi * (xoffset_lam * x + yoffset_lam * y))
+    
+    if display:
+        misc.myimshow2(np.abs(wfin.wavefront)**2, np.angle(wfin.wavefront),
+                       'Input Wave Intensity', 'Input Wave Phase',
+                       pxscl=wfin.pixelscale, 
+                       cmap1='gist_heat', cmap2='viridis')
+    
+    return wfin
+
+def resample_psf(pop_psf, pixelscale, npix): 
+    ''' 
+    Resample a POPPY PSF by providing the following:
+        pop_psf: the FresnelWavefront object of the PSF
+        pixelscale: the desired output pixelscale in units of m/pix
+        npix: the desired output dimension of the PSF
+    '''
+    pop_psf_wf = pop_psf.wavefront
+    pop_pxscl = pop_psf.pixelscale.value
+    print('Input POPPY wavefront pixelscale: ', pop_pxscl*u.m/u.pix)
+    mag = pop_pxscl/pixelscale
+    resamp_pop_psf_wf = proper.prop_magnify(pop_psf_wf, mag, npix, AMP_CONSERVE=True)
+    print('Interpolated POPPY wavefront pixelscale: ', pop_pxscl/mag*u.m/u.pix)
+    return resamp_pop_psf_wf, mag
+
+def compare_psfs(pop_psf, prop_psf_fpath, vmin=None, vmax=None):
+    '''
+    Useful function to directly display and compare a POPPY PSF and a PROPER PSF the POPPY PSF will automatically be rotated 
+    by 180degrees to match the sign convention of PROPER.
+        pop_psf: the FresnelWavefront object of the PSF
+        prop_psf_fpath: the file path to the desired PROPER PSF which is saved as a FITS file in the proper-psfs directory 
+        vmin and vmax: set the minimum and maximum values for the colorbar
+    '''
+    reload(misc)
+    prop_psf_fname = str(prop_psf_fpath)
+    if 'hlc' in prop_psf_fname:
+        psf_title = 'HLC, '
+        iwa=3; owa=9
+    if 'spc-spec' in prop_psf_fname:
+        psf_title = 'SPC-Spec, '
+        iwa=3; owa=9
+    elif 'spc-wide' in prop_psf_fname: 
+        psf_title = 'SPC-Wide, '
+        iwa=5.4; owa=20
+    psf_title += str(int(pop_psf.wavelength.value*1e9))+'nm,'
+    if '_onax' in prop_psf_fname: psf_title += ' on-axis,\n'
+    else: psf_title += ' off-axis,\n'
+    if '_nofs' in prop_psf_fname: psf_title += ' no FS,'
+    if '_dms' in prop_psf_fname: psf_title += ' with DMs,'
+    else: psf_title += ' without DMs,'
+    if '_opds' in prop_psf_fname: psf_title += ' with OPDs,'
+    else: psf_title += ' without OPDs,'
+    prop_wf = fits.getdata(Path(prop_psf_fname))
+    prop_int = prop_wf[0] # the initial PROPER PSF wavefront array is 3D, first entry of first dimention is the intensity.
+    prop_phs = prop_wf[1] # second entry of first dimension is the phase
+    prop_pxscl = fits.getheader(prop_psf_fname)['PIXELSCL'] # saved PROPER wfs have pixelscales saved in both m/pix and lambda/D/pix
+    prop_pxscl_lamD = fits.getheader(prop_psf_fname)['PIXSCLLD']
+    print('PROPER wavefront pixelscale: ', prop_pxscl*u.m/u.pix)
+    print('PROPER wavefront pixelscale in \u03BB/D: ', prop_pxscl_lamD)
+    
+    pop_psf_wf, mag = resample_psf(pop_psf, prop_pxscl, prop_int.shape[0])
+    
+    # rotate poppy psf 180degree since there is a sign convention difference between POPPY and PROPER
+    pop_psf_wf_r = scipy.ndimage.rotate(np.real(pop_psf_wf), 180)
+    pop_psf_wf_i = scipy.ndimage.rotate(np.imag(pop_psf_wf), 180)
+    pop_psf_wf = pop_psf_wf_r + 1j*pop_psf_wf_i
+    pop_int = np.abs(pop_psf_wf)**2
+    pop_phs = np.angle(pop_psf_wf)
+    
+    if vmin is None:
+        vmin = np.min(pop_int)
+        if np.min(prop_int) < vmin: vmin = np.min(prop_int)
+    if vmax is None:
+        vmax = np.max(pop_int)
+        if np.max(prop_int) > vmax: vmax = np.max(prop_int)
+    
+    innwa = iwa/prop_pxscl_lamD*prop_pxscl*1000 # inner and outer working angles in units of m
+    outwa = owa/prop_pxscl_lamD*prop_pxscl*1000
+    patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
+                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
+    patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
+                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
+    misc.myimshow2(pop_int, prop_int, 'POPPY PSF: '+psf_title, 'PROPER PSF: '+psf_title,
+                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
+                   cmap1='gist_heat', cmap2='gist_heat',
+                   lognorm1=True, lognorm2=True, vmin1=vmin, vmax1=vmax, vmin2=vmin, vmax2=vmax,
+                   patches1=patches1, patches2=patches2,)
+    
+    patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
+                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
+    patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
+                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
+    misc.myimshow2(pop_phs, prop_phs, 'POPPY PSF Phase', 'PROPER PSF Phase',
+                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
+                   cmap1='viridis', cmap2='viridis',
+                   patches1=patches1, patches2=patches2,)
+    
+    # difference plots
+    int_diff = np.abs(pop_int - prop_int)
+    phs_diff = pop_phs-prop_phs
+    patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
+                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
+    patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
+                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
+    misc.myimshow2(int_diff, phs_diff, 'PSF Intesnity Difference', 'PSF Phase Difference',
+                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
+                   cmap1='gist_heat', cmap2='viridis',
+                   lognorm1=True, vmax1=vmax,
+                   patches1=patches1, patches2=patches2)
+     
+def run_model(mode='HLC575',
               oversample=2,
-              mode='SPC730',
               lambda_m=None,
               offsets=(0,0),
               use_fpm=True,
@@ -110,10 +251,36 @@ def run_model(npix=1000,
               display_intermediates=False,
               display_fpm=False,
               display_psf=True):
-    reload(poppy); reload(misc); reload(polmap)
-    clear_output()
-    ''' Initialize directories and file names for the masks and OPDs '''
+    '''
+    This is the function used to calculate a PSF. WebbPSF would make this easier as you can initialize a mode, alter options, and then 
+    calculate a PSF rather than using one function to initialize a mode and putting in options as kwargs to calculate the desired PSF.
+        mode: which mode to calculate a PSF for; 'HLC575', 'SPC730', or 'SPC825'
+        oversample: how much oversampling for the FresnelOpticalSystem's pupil diameter to use, default is 2 for all modes
+        lambda_m: wavelength to propagate; if None, the wavelength used will be the modes central wavelength
+        offsets: source offset coordinates provided as a tuple as such (x_offset, y_offset)
+        use_fpm: use the modes FPM or not, default is True
+        use_opds: use individual optic OPDs, default is False
+        use_dms: use DM maps for the given mode, default is False; if True, the DM maps for the correct scenario are applied. The SPC modes
+                 each have one set of DM maps, for when polaxis is 10 and all OPDs are used. The HLC mode has two sets of DM maps, one for 
+                 when no polaxis or OPDs are used since the HLC uses the DMs ton make a dark-hole anyway and another set for when polaxis is 
+                 10 and when OPDs are used. 
+        use_fieldstop: use the fieldstop or not, only useable for the HLC mode
+        use_apertures: use individual optic apertures
+        polaxis: what polarization axis to detremine the polarization aberrations for; will use the polmap function to do so; default is 0, 
+                 meaning no polarization aberration are used
+        cgi_dir: path to the directory containing the POPPY CGI data files
+        display_mode: display some of the mode specific optics; uses the POPPY display functionality for optical elements
+        display_inwave: display the intensity and phase of the input wavefront
+        display_intermediates: display all intermediate optic planes using POPPY's default display_intermediates feature
+        display_fpm: display the FPM wavefront intensity after the FPM is applied or not
+        display_psf: display the final PSF intensity
+    '''
+    reload(misc)
+    reload(polmap)
+    
+    #################### Initialize directories and file names for the masks and OPDs
     if mode=='HLC575':
+        npix = 1024
         opticsdir = cgi_dir/'optics'/'F575'
         opddir = cgi_dir/'OPD-hlc575'
         pupil_fname = str(opticsdir/'run461_pupil_rotated.fits')
@@ -140,6 +307,7 @@ def run_model(npix=1000,
         
         lyotstop_fname = str(opticsdir/'run461_lyot.fits')
     elif mode=='SPC730':
+        npix = 1000
         opticsdir = cgi_dir/'optics'/'F730'
         opddir = cgi_dir/'OPD-spc730'
         pupil_fname = str(opticsdir/'pupil_SPC-20190130_rotated.fits')
@@ -153,6 +321,7 @@ def run_model(npix=1000,
         if lambda_m==None:
             lambda_m = 730e-9*u.m
     elif mode=='SPC825':
+        npix = 1000
         opticsdir = cgi_dir/'optics'/'F825'
         opddir = cgi_dir/'OPD-spc825'
         pupil_fname = str(opticsdir/'pupil_SPC-20181220_1k_rotated.fits')
@@ -166,7 +335,7 @@ def run_model(npix=1000,
         if lambda_m==None:
             lambda_m = 825e-9*u.m
         
-    ''' Initialize mode specific optics '''
+    #################### Initialize mode specific optics 
     if mode=='SPC730' or mode=='SPC825':
         D = 2.3633372*u.m
         pupil = poppy.FITSOpticalElement('Roman Pupil', pupil_fname, planetype=PlaneType.pupil)
@@ -226,7 +395,7 @@ def run_model(npix=1000,
     else: 
         fieldstop = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='Fieldstop Plane (No Optic)')
     
-    # define optics
+    #################### Define optics
     primary = poppy.QuadraticLens(fl_pri, name='Primary')
     secondary = poppy.QuadraticLens(fl_sec, name='Secondary')
     fold1 = poppy.CircularAperture(radius=diam_fold1/2,name="Fold 1")
@@ -250,7 +419,7 @@ def run_model(npix=1000,
     fold4 = poppy.CircularAperture(radius=diam_fold4/2,name="Fold 4")
     image = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='focus')
     
-    ''' Initialize OPDs if using them in the FresnelOpticalSystem '''
+    #################### Initialize OPDs if using them in the FresnelOpticalSystem
     if use_opds:
         primary_opd = poppy.FITSOpticalElement('Primary OPD',
                                                opd=str(opddir/'wfirst_phaseb_PRIMARY_phase_error_V1.0.fits'), opdunits='meters', 
@@ -338,7 +507,7 @@ def run_model(npix=1000,
         fig=plt.figure(figsize=(10,4)); dm2.display(what='both'); plt.close(); display(fig)
         fig=plt.figure(figsize=(4,4)); fieldstop.display(); plt.close(); display(fig)
 
-    # create the optical system
+    #################### Create the optical system
     beam_ratio = 1/oversample
     fosys = poppy.FresnelOpticalSystem(name=mode, pupil_diameter=D, npix=npix, beam_ratio=beam_ratio, verbose=True)
 
@@ -437,29 +606,24 @@ def run_model(npix=1000,
 
     fosys.add_optic(image, distance=d_fold4_image)
 
-    ''' Calculate the PSF of the FresnelOpticalSystem '''
+    #################### Calculate the PSF of the FresnelOpticalSystem
     start = time.time()
     wfin = make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxis, display_inwave) # define the inwave
     psf,wfs = fosys.calc_psf(wavelength=lambda_m, 
                              display_intermediates=display_intermediates, 
-                             return_final=True,
-                             return_intermediates=True,
+                             return_final=True, return_intermediates=True,
                              inwave=wfin)
     print('PSF calculated in {:.2f}s'.format(time.time()-start))
     
-    ''' Display options'''
+    #################### Display options
     if display_fpm:
         fpmnum = 19
-        if use_apertures:
-            fpmnum = 27
-        if use_opds:
-            fpmnum = 38
+        if use_apertures: fpmnum = 27
+        if use_opds: fpmnum = 38
         print('FPM pixelscale: ', wfs[fpmnum].pixelscale)
         misc.myimshow2(np.abs(wfs[fpmnum].wavefront)**2, np.angle(wfs[fpmnum].wavefront),
                        'Off-axis FPM Intensity', 'Off-axis FPM Phase',
-                       npix=64,
-                       cmap1='gist_heat', cmap2='viridis',
-                       lognorm1=True,
+                       npix=64, cmap1='gist_heat', cmap2='viridis', lognorm1=True,
                        pxscl=wfs[fpmnum].pixelscale.to(u.mm/u.pix))
         
     if display_psf:
@@ -467,193 +631,10 @@ def run_model(npix=1000,
         print('PSF pixelscale: ', wfs[psfnum].pixelscale)
         misc.myimshow2(np.abs(wfs[psfnum].wavefront)**2, np.angle(wfs[psfnum].wavefront),
                        'PSF Intensity', 'PSF Phase',
-                       npix=256,
-                       cmap1='gist_heat', cmap2='viridis',
-                       lognorm1=True,
+                       npix=256, cmap1='gist_heat', cmap2='viridis',lognorm1=True,
                        pxscl=wfs[psfnum].pixelscale.to(u.mm/u.pix))
 
     return psf, wfs
-
-def make_inwave(mode, cgi_dir, D, lambda_c_m, lambda_m, npix, oversample, offsets, polaxis, display=True):
-    wfin = poppy.FresnelWavefront(beam_radius=D/2, wavelength=lambda_m, npix=npix, oversample=oversample)
-    
-    if polaxis!=0: 
-        print('Employing polarization aberrations.')
-        polfile = cgi_dir/'optics'/'pol'/'new_toma' # the file extension is added by the polmap function call
-        if mode=='HLC575': polmap.polmap( wfin, polfile, 309, polaxis )
-        else: polmap.polmap( wfin, polfile, npix, polaxis )
-    else:
-        print('Not employing polarization aberrations.')
-    
-    xoffset = offsets[0]
-    yoffset = offsets[1]
-    xoffset_lam = -xoffset * (lambda_c_m / lambda_m).value * (D/2.3633372*u.m).value # maybe use negative sign
-    yoffset_lam = -yoffset * (lambda_c_m / lambda_m).value * (D/2.3633372*u.m).value
-    n = npix*oversample
-    x = np.tile( (np.arange(n)-n//2)/(npix/2.0), (n,1) )
-    y = np.transpose(x)
-    wfin.wavefront = wfin.wavefront * np.exp(complex(0,1) * np.pi * (xoffset_lam * x + yoffset_lam * y))
-    
-    if display:
-        misc.myimshow2(np.abs(wfin.wavefront)**2, np.angle(wfin.wavefront),
-                       'Input Wave Intensity', 'Input Wave Phase',
-                       pxscl=wfin.pixelscale, 
-                       cmap1='gist_heat', cmap2='viridis')
-    
-    return wfin
-
-def compare_psfs(pop_psf, prop_psf_fpath):
-    reload(misc)
-    prop_psf_fname = str(prop_psf_fpath)
-    if 'hlc' in prop_psf_fname:
-        psf_title = 'HLC, '
-        iwa=3; owa=9
-    if 'spc-spec' in prop_psf_fname:
-        psf_title = 'SPC-Spec, '
-        iwa=3; owa=9
-    elif 'spc-wide' in prop_psf_fname: 
-        psf_title = 'SPC-Wide, '
-        iwa=5.4; owa=20
-    psf_title += str(int(pop_psf.wavelength.value*1e9))+'nm,'
-    if '_onax' in prop_psf_fname: psf_title += ' on-axis,\n'
-    else: psf_title += ' off-axis,\n'
-    if '_nofs' in prop_psf_fname: psf_title += ' no FS,'
-    if '_dms' in prop_psf_fname: psf_title += ' with DMs,'
-    else: psf_title += ' without DMs,'
-    if '_opds' in prop_psf_fname: psf_title += ' with OPDs,'
-    else: psf_title += ' without OPDs,'
-    prop_wf = fits.getdata(Path(prop_psf_fname))
-    prop_int = prop_wf[0]
-    prop_phs = prop_wf[1]
-    prop_pxscl = fits.getheader(prop_psf_fname)['PIXELSCL']
-    prop_pxscl_lamD = fits.getheader(prop_psf_fname)['PIXSCLLD']
-    print('PROPER wavefront pixelscale: ', prop_pxscl*u.m/u.pix)
-    print('PROPER wavefront pixelscale in \u03BB/D: ', prop_pxscl_lamD)
-    
-    pop_psf_wf = pop_psf.wavefront
-    pop_pxscl = pop_psf.pixelscale.value
-    print('Input POPPY wavefront pixelscale: ', pop_pxscl*u.m/u.pix)
-    mag = pop_pxscl/prop_pxscl
-    pop_psf_wf = proper.prop_magnify(pop_psf_wf, mag, prop_wf[0].shape[0], AMP_CONSERVE=True)
-    print('Interpolated POPPY wavefront pixelscale: ', pop_pxscl/mag*u.m/u.pix)
-    
-    # rotate poppy psf 180degree since there is a sign convention difference between POPPY and PROPER
-    pop_psf_wf_r = scipy.ndimage.rotate(np.real(pop_psf_wf), 180)
-    pop_psf_wf_i = scipy.ndimage.rotate(np.imag(pop_psf_wf), 180)
-    pop_psf_wf = pop_psf_wf_r + 1j*pop_psf_wf_i
-    pop_int = np.abs(pop_psf_wf)**2
-    pop_phs = np.angle(pop_psf_wf)
-    
-    vmin = np.min(pop_int)
-    if np.min(prop_int) < vmin: vmin = np.min(prop_int)
-    vmax = np.max(pop_int)
-    if np.max(prop_int) > vmax: vmax = np.max(prop_int)
-    
-    innwa = iwa/prop_pxscl_lamD*prop_pxscl*1000 # inner and outer working angles in units of m
-    outwa = owa/prop_pxscl_lamD*prop_pxscl*1000
-    patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
-                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
-    patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
-                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
-    misc.myimshow2(pop_int, prop_int, 'POPPY PSF: '+psf_title, 'PROPER PSF: '+psf_title,
-                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
-                   cmap1='gist_heat', cmap2='gist_heat',
-                   lognorm1=True, lognorm2=True, vmin1=vmin, vmax1=vmax, vmin2=vmin, vmax2=vmax,
-                   patches1=patches1, patches2=patches2,)
-    
-    patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
-                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
-    patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
-                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
-    misc.myimshow2(pop_phs, prop_phs, 'POPPY PSF Phase', 'PROPER PSF Phase',
-                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
-                   cmap1='viridis', cmap2='viridis',
-                   patches1=patches1, patches2=patches2,)
-    
-    # difference plots
-    int_diff = np.abs(pop_int - prop_int)
-    phs_diff = pop_phs-prop_phs
-    patches1 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
-                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
-    patches2 = [Circle((0,0),innwa,edgecolor='c', facecolor='none',lw=1),
-                Circle((0,0),outwa,edgecolor='c', facecolor='none',lw=1)]
-    misc.myimshow2(int_diff, phs_diff, 'PSF Intesnity Difference', 'PSF Phase Difference',
-                   pxscl=(prop_pxscl*u.m/u.pix).to(u.mm/u.pix),
-                   cmap1='gist_heat', cmap2='viridis',
-                   lognorm1=True, vmax1=vmax,
-                   patches1=patches1, patches2=patches2)
-    
-# convenient function for saving all wavefront data at each optic of the system once a PSF is calculated
-def save_waves(wfs, use_apertures, use_opds, npix=1000, wfdir=None):
-    if use_apertures==False and use_opds==False:
-        optics = ['pupil', 'primary', 'secondary', 'fold1', 'm3', 'm4', 'm5', 'fold2', 'fsm', 'oap1', 
-                  'focm', 'oap2', 'dm1', 'dm2', 'oap3', 'fold3', 'oap4', 'spm', 'oap5', 'fpm', 'oap6',
-                  'lyotstop', 'oap7', 'fieldstop', 'oap8', 'filter', 'lens', 'fold4', 'image']
-        print('Saving wavefronts: ')
-        for i,wf in enumerate(wfs):
-            wavefront = misc.pad_or_crop(wf.wavefront, npix)
-
-            wf_data = np.zeros(shape=(2,npix,npix))
-            wf_data[0,:,:] = np.abs(wavefront)**2
-            wf_data[1,:,:] = np.angle(wavefront)
-
-            wf_fpath = wfdir/('wf_' + optics[i] + '_poppy' + '.fits')
-            hdr = fits.Header()
-            hdr['PIXELSCL'] = wf.pixelscale.value
-
-            wf_hdu = fits.PrimaryHDU(wf_data, header=hdr)
-            wf_hdu.writeto(wf_fpath, overwrite=True)
-            print(i, 'Saved '+optics[i]+' wavefront to ' + wf_fpath)
-    elif use_apertures==False and use_opds==True:
-        optics = ['pupil', 
-                  'primary', 'primary_opd', 'g2o_opd', 
-                  'secondary', 'secondary_opd',
-                  'fold1', 'fold1_opd',
-                  'm3', 'm3_opd',
-                  'm4', 'm4_opd',
-                  'm5', 'm5_opd',
-                  'fold2', 'fold2_opd',
-                  'fsm', 'fsm_opd',
-                  'oap1', 'oap1_opd',
-                  'focm', 'focm_opd',
-                  'oap2', 'oap2_opd',
-                  'dm1', 'dm1_opd',
-                  'dm2', 'dm2_opd',
-                  'oap3', 'oap3_opd',
-                  'fold3', 'fold3_opd',
-                  'oap4', 'oap4_opd',
-                  'spm', 'spm_opd',
-                  'oap5', 'oap5_opd',
-                  'fpm', 
-                  'oap6', 'oap6_opd',
-                  'lyotstop', 
-                  'oap7', 'oap7_opd',
-                  'fieldstop', 
-                  'oap8', 'oap8_opd',
-                  'filter', 'filter_opd',
-                  'lens', 'lens_opd',
-                  'fold4', 'fold4_opd', 
-                  'image']
-        print('Saving wavefronts: ')
-        for i,wf in enumerate(wfs):
-            wavefront = misc.pad_or_crop(wf.wavefront, npix)
-
-            wf_data = np.zeros(shape=(2,npix,npix))
-            wf_data[0,:,:] = np.abs(wavefront)**2
-            wf_data[1,:,:] = np.angle(wavefront)
-
-            wf_fpath = Path(wfdir)/('wf_' + optics[i] + '_poppy' + '.fits')
-            hdr = fits.Header()
-            hdr['PIXELSCL'] = wf.pixelscale.value
-
-            wf_hdu = fits.PrimaryHDU(wf_data, header=hdr)
-            wf_hdu.writeto(wf_fpath, overwrite=True)
-            print(i, 'Saved '+optics[i]+' wavefront to ' + str(wf_fpath))
-            
-    print('All wavefronts saved.')
-    
-    
-    
     
     
     
