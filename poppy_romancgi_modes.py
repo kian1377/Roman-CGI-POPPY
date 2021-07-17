@@ -281,14 +281,16 @@ def run_model(mode='HLC575',
     #################### Initialize directories and file names for the masks and OPDs
     if mode=='HLC575':
         npix = 1024
+        D = 2.3633372*u.m*npix/309
         opticsdir = cgi_dir/'optics'/'F575'
         opddir = cgi_dir/'OPD-hlc575'
         pupil_fname = str(opticsdir/'run461_pupil_rotated.fits')
         
         lambda_c_m = 575e-9*u.m
-        if lambda_m==None:
+        if lambda_m is None:
             lambda_m = 575e-9*u.m
         
+        # this is a cumbersome way of choosing the correct complex occulter files depending on the wavelength being propagated
         fpm_lams = [5.4625e-07, 5.49444444444e-07, 5.52638888889e-07, 5.534375e-07, 5.55833333333e-07, 
                     5.59027777778e-07, 5.60625e-07, 5.62222222222e-07, 5.65416666667e-07, 5.678125e-07, 
                     5.68611111111e-07, 5.71805555556e-07, 5.75e-07, 5.78194444444e-07, 5.81388888889e-07, 
@@ -308,6 +310,7 @@ def run_model(mode='HLC575',
         lyotstop_fname = str(opticsdir/'run461_lyot.fits')
     elif mode=='SPC730':
         npix = 1000
+        D = 2.3633372*u.m
         opticsdir = cgi_dir/'optics'/'F730'
         opddir = cgi_dir/'OPD-spc730'
         pupil_fname = str(opticsdir/'pupil_SPC-20190130_rotated.fits')
@@ -318,10 +321,11 @@ def run_model(mode='HLC575',
         lyotstop_fname = str(opticsdir/'LS_SPC-20190130.fits')
         
         lambda_c_m = 730e-9*u.m
-        if lambda_m==None:
+        if lambda_m is None:
             lambda_m = 730e-9*u.m
     elif mode=='SPC825':
         npix = 1000
+        D = 2.3633372*u.m
         opticsdir = cgi_dir/'optics'/'F825'
         opddir = cgi_dir/'OPD-spc825'
         pupil_fname = str(opticsdir/'pupil_SPC-20181220_1k_rotated.fits')
@@ -332,36 +336,32 @@ def run_model(mode='HLC575',
         lyotstop_fname = str(opticsdir/'LS_SPC-20181220_1k.fits')
         
         lambda_c_m = 825e-9*u.m
-        if lambda_m==None:
+        if lambda_m is None:
             lambda_m = 825e-9*u.m
         
     #################### Initialize mode specific optics 
-    if mode=='SPC730' or mode=='SPC825':
-        D = 2.3633372*u.m
-        pupil = poppy.FITSOpticalElement('Roman Pupil', pupil_fname, planetype=PlaneType.pupil)
-        SPM = poppy.FITSOpticalElement('Shaped Pupil Mask', spm_fname, planetype=PlaneType.pupil)
-        if use_fpm: 
+    pupil = poppy.FITSOpticalElement('Roman Pupil', pupil_fname, planetype=PlaneType.pupil)
+    LS = poppy.FITSOpticalElement('Lyot Stop', lyotstop_fname, planetype=PlaneType.pupil)
+    if mode=='SPC730' or mode=='SPC825': SPM = poppy.FITSOpticalElement('Shaped Pupil Mask', spm_fname, planetype=PlaneType.pupil)
+    elif mode=='HLC575': SPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='SPM Plane (No Optic)')
+      
+    if use_fpm: 
+        if mode=='SPC730' or mode=='SPC825':
             FPM = poppy.FITSFPMElement(fpm_name, fpm_fname, 
                                        wavelength_c=lambda_c_m, ep_diam=D, pixelscale_lamD=fpm_pxscl_lamD, centering='ADJUSTABLE',)
-        else: 
-            FPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM Plane (No Optic)')
-        LS = poppy.FITSOpticalElement('Lyot Stop', lyotstop_fname, planetype=PlaneType.pupil)
-    elif mode=='HLC575':
-        D = 2.3633372*u.m*npix/309
-        pupil = poppy.FITSOpticalElement('Roman Pupil', pupil_fname, planetype=PlaneType.pupil)
-        SPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='SPM Plane (No Optic)')
-        if use_fpm:
+        elif mode=='HLC575': 
             FPM = poppy.FITSOpticalElement('Complex FPM', transmission=fpm_real_fname, planetype=PlaneType.intermediate)
+            # set the actual FPM data manually with the separate occulter files for real and imaginary components
             real = fits.getdata(fpm_real_fname)
             imag = fits.getdata(fpm_imag_fname)
             fpm_phasor = real + 1j*imag
             FPM.amplitude = np.abs(fpm_phasor)
             FPM.opd = np.angle(fpm_phasor)/ (2*np.pi/fpm_lams[lam_ind])
-            FPM.interp_order = 0
-        else:
-            FPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM Plane (No Optic)')
-        LS = poppy.FITSOpticalElement('Lyot Stop', lyotstop_fname, planetype=PlaneType.pupil)
+            FPM.interp_order = 0 # set the interpolation order to 0, POPPY default is 3
+    else: 
+        FPM = poppy.ScalarTransmission(planetype=PlaneType.intermediate, name='FPM Plane (No Optic)')
         
+    # choose the correct pair of DM maps to use based on the mode and OPDs option provided
     if use_dms: 
         if mode=='HLC575':
             if use_opds:
