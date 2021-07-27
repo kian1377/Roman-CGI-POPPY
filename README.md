@@ -2,7 +2,7 @@
 
 This repository is the development repo utilized for updating Roman CGI simulation tools by translating the wfirst_phaseb_proper models to POPPY. 
 
-To begin with, all the data files required can be found on Box at this [link](https://arizona.app.box.com/folder/141147076251). 
+To begin with, all the data files required can be found on Box at this [link](https://arizona.box.com/s/9cquzldre5ru2497a70omstxb1o83l5s). 
 
 The POPPY models are defined in the Python file poppy_romancgi_modes.py. The file used to run the modes is the jupyter notebook run_poppy_modes.ipynb. In this notebook, the poppy_romancgi_modes file is imported and a PSF is calculated with the function run_model(). There are various kwargs allowing for different options to be utilized when calculating a PSF, but overall, these models are only intedned for monochromatic PSF calculations. 
 
