@@ -1,5 +1,11 @@
 # Roman-CGI-POPPY
 
+This code is archived and can be cited via Zenodo [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5112382.svg)](https://doi.org/10.5281/zenodo.5112382)
+
+For more details see:
+
+Milani, K., Douglas, E. S., & Ashcraft, J. (2021). Updated simulation tools for Roman coronagraph PSFs. In UV/Optical/IR Space Telescopes and Instruments: Innovative Technologies and Concepts X (Vol. 11819, p. 118190E). International Society for Optics and Photonics. https://arxiv.org/abs/2108.10924
+
 This repository is the development repo utilized for updating Roman CGI simulation tools by translating the wfirst_phaseb_proper models to POPPY. 
 
 To begin with, all the data files required can be found on Box at this [link](https://arizona.box.com/s/9cquzldre5ru2497a70omstxb1o83l5s). 
